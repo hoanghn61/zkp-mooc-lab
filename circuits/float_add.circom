@@ -272,8 +272,8 @@ template RoundAndCheck(k, p, P) {
 
 /*
  * Left-shifts `x` by `shift` bits to output `y`.
- * Enforces 0 <= `shift` < `shift_bound`.
- * If `skip_checks` = 1, then we don't care about the output and the `shift_bound` constraint is not enforced.
+ * Ensures 0 <= `shift` < `shift_bound`.
+ * If `skip_checks` = 1, then the output and the `shift_bound` constraint are not enforced.
  */
 template LeftShift(shift_bound) {
     signal input x;
@@ -286,26 +286,27 @@ template LeftShift(shift_bound) {
 
     skip_checks * (1 - skip_checks) === 0;
 
-    signal accumulator[shift_bound + 1];
-    signal tripwire[shift_bound + 1];
+    signal values[shift_bound + 1];
+    signal flags[shift_bound + 1];
     component equal_check[shift_bound];
 
-    accumulator[0] <== x;
-    tripwire[0] <== 1;
+    values[0] <== x;
+    flags[0] <== 1;
 
     for (var i = 0; i < shift_bound; i++) {
-        // Check if current `i` is equal to `shift`
+        // Verify if the current index `i` matches `shift`
         equal_check[i] = IsEqual();
         equal_check[i].in[0] <== shift;
         equal_check[i].in[1] <== i;
 
-        // Set tripwire to zero after the shift point is reached
-        tripwire[i + 1] <== tripwire[i] * (1 - equal_check[i].out);
-        accumulator[i + 1] <== accumulator[i] * (1 + tripwire[i + 1]);
+        // Deactivate flag after the shift position is reached
+        flags[i + 1] <== flags[i] * (1 - equal_check[i].out);
+        values[i + 1] <== values[i] * (1 + flags[i + 1]);
     }
 
-    y <== accumulator[shift_bound];
+    y <== values[shift_bound];
 }
+
 
 /*
  * Find the Most-Significant Non-Zero Bit (MSNZB) of `in`, where `in` is assumed to be non-zero value of `b` bits.
