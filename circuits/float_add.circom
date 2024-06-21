@@ -320,43 +320,27 @@ template MSNZB(b) {
     signal input skip_checks;
     signal output one_hot[b];
 
-    // Assert that if the check is not being skipped, `in` is positive and non-zero
     assert(skip_checks || in > 0);
-
-    // Ensure skip_checks is a binary value
     skip_checks * (1 - skip_checks) === 0;
-
-    // Extract a boolean value (lt.out) that represents whether 0 is less than `in` (i.e. `in` >= 0)
     component lt = LessThan(b);
     lt.in[0] <== 0;
     lt.in[1] <== in;
 
-    // Assert `in` >= 0 by constraining (1 - lt.out) to be zero.
-    // Note that we add the binary indicator `skip_checks` to the constraint to allow the constraint to be skipped.
     0 === (1 - lt.out) * (1 - skip_checks);
-
-    // Convert b to bits to begin the MSNZB operation
     component num_bits = Num2Bits(b);
     num_bits.in <== in;
 
-    // We set a comparator that compares the ith bit of `in` with the (i+1)th bit of an accumulattrip.
-    // The accumulator serves as a tripwire that is set to 1 for all remaining values when the MSNZB is found.
     component comparator[b];
     signal accumulator[b+1];
     accumulator[b] <== 0;
     
-    // Iterate through the bits of `in` from MSB to ltB.
     for (var i = b - 1; i >= 0; i--) {
         comparator[i] = OR();
         comparator[i].a <== num_bits.bits[i];
         comparator[i].b <== accumulator[i+1];
 
-        // If the MSNZB has been found, this will always set to 1.
         accumulator[i] <== comparator[i].out;
     }
-
-    // At this point, our accumulator has accumulated an array of bits that are 1's up to the MSNZB and 0's after.
-    // Since our input is non-zero, we can assume that `accumulator` is not an array of all zeroes.
     for (var i = 0; i < b; i++) {
         one_hot[i] <== accumulator[i] - accumulator[i+1];
     }
@@ -377,36 +361,27 @@ template Normalize(k, p, P) {
     signal output m_out;
     assert(P > p);
 
-    // Pull MSNZB of `m`. Since we already check validity of skip_checksin the MSNZB template, we can directly pass it in as a constraint.
     component msnzb = MSNZB(P+1);
     msnzb.in <== m;
     msnzb.skip_checks <== skip_checks;
-    
 
-    // We set array lengths to P+2 to make space for the final carry bit.
-    signal mantissa_accumulator[P+2];
-    signal reverse_accumulator[P+2];
+    signal mant_accum[P+2];
+    signal rev_accum[P+2];
 
-    // Initialize accumulator values.
-    mantissa_accumulator[P+1] <== m;
-    reverse_accumulator[P+1] <== 1;
+    mant_accum[P+1] <== m;
+    rev_accum[P+1] <== 1;
 
-    var precision_offset = P;
-    for (var i = P; i >= 0; i--) {
-        // Carries the 1 over until it hits the MSNZB. Sets remaining values to 0.
-        reverse_accumulator[i] <== (1 - msnzb.one_hot[i]) * reverse_accumulator[i + 1];
-
-        // Accumulate mantissa value until MSNZB, after which we carry the final value to index 0.
-        mantissa_accumulator[i] <== reverse_accumulator[i] * mantissa_accumulator[i + 1] + mantissa_accumulator[i + 1];
-
-        // Reduce precision offset for each bit leading up to MSNZB.
-        precision_offset -= reverse_accumulator[i];
+    var prec_offset = P;
+    for (var idx = P; idx >= 0; idx--) {
+        rev_accum[idx] <== (1 - msnzb.one_hot[idx]) * rev_accum[idx + 1];
+        mant_accum[idx] <== rev_accum[idx] * mant_accum[idx + 1] + mant_accum[idx + 1];
+        prec_offset -= rev_accum[idx];
     }
 
-    // Set final exponent and mantissa values.
-    m_out <== mantissa_accumulator[0];
-    e_out <== e + precision_offset - p;
+    m_out <== mant_accum[0];
+    e_out <== e + prec_offset - p;
 }
+
 
 /*
  * Adds two floating-point numbers.
@@ -421,7 +396,6 @@ template FloatAdd(k, p) {
     signal output e_out;
     signal output m_out;
 
-    // Check that inputs are well-formed.
     component is_well_formed[2];
     for (var i = 0; i < 2; i++) {
         is_well_formed[i] = CheckWellFormedness(k, p);
@@ -429,11 +403,9 @@ template FloatAdd(k, p) {
         is_well_formed[i].m <== m[i];
     }
 
-    // 
     signal e_left[2][p + 2];
     signal magnitude[2];
 
-    // 
     for (var i = 0; i < 2; i++) {
         e_left[i][0] <== e[i];
         for(var j = 0; j < p+1; j++) {
